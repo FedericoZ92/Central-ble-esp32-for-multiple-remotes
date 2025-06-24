@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "../../../FIRMWARE_SENSORI/Pi_Emme_PM/source"
+		},
+		{
+			"name": "ble_probe",
+			"path": "."
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"menucalibration.h": "c"
+		}
+	}
+}

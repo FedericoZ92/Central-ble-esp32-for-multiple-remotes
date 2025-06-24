@@ -1,0 +1,17 @@
+menu "Configurazione custom firmware"
+    choice DEV_TYPE
+        prompt "Device Type"
+        default MANIFOLD_TYPE
+    
+    config MANIFOLD_TYPE
+        bool "POFD02-Manifold"
+    
+    config VACUUM_TYPE
+        bool "POVG02-Vacuum"
+    
+    config TEMPERATURE_TYPE
+        bool "STB001-Temperature"
+    
+    endchoice
+endmenu
+    

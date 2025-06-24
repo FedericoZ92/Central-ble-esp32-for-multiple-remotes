@@ -1,0 +1,10 @@
+#pragma once
+
+
+enum PRIORITY{
+    PRIORITY_VERY_LOW = 0,
+    PRIORITY_LOW = 1,
+    PRIORITY_AVERAGE = 2,
+    PRIORITY_HIGH = 3,
+    PRIORITY_VERY_HIGH = 4,
+};
