@@ -20,7 +20,7 @@ Development period: 2024-2025
 //ble-cent
 #include "esp_log.h"
 #include "nvs_flash.h"
-#include "nimble/nimble_port.h"
+#include <nimble/nimble_port.h> 
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
 #include "host/util/util.h"
@@ -531,24 +531,24 @@ static void blecent_connect_if_interesting(void *disc)
     int rc;
     ble_addr_t *addr;
     // Don't do anything if we don't care about this advertiser. 
-#if CONFIG_EXAMPLE_EXTENDED_ADV
-    if (!ext_blecent_should_connect((struct ble_gap_ext_disc_desc *)disc)) {
-        return;
-    }
-#else
-    if (!blecent_should_connect((struct ble_gap_disc_desc *)disc)) {
-        return;
-    }
-#endif
+    #if CONFIG_EXAMPLE_EXTENDED_ADV
+        if (!ext_blecent_should_connect((struct ble_gap_ext_disc_desc *)disc)) {
+            return;
+        }
+    #else
+        if (!blecent_should_connect((struct ble_gap_disc_desc *)disc)) {
+            return;
+        }
+    #endif
 
-#if !(MYNEWT_VAL(BLE_HOST_ALLOW_CONNECT_WITH_SCAN))
-    // Scanning must be stopped before a connection can be initiated. 
-    rc = ble_gap_disc_cancel();
-    if (rc != 0) {
-        MODLOG_DFLT(DEBUG, "Failed to cancel scan; rc=%d\n", rc);
-        return;
-    }
-#endif
+    #if !(MYNEWT_VAL(BLE_HOST_ALLOW_CONNECT_WITH_SCAN))
+        // Scanning must be stopped before a connection can be initiated. 
+        rc = ble_gap_disc_cancel();
+        if (rc != 0) {
+            MODLOG_DFLT(DEBUG, "Failed to cancel scan; rc=%d\n", rc);
+            return;
+        }
+    #endif
 
     // Figure out address to use for connect (no privacy for now) 
     rc = ble_hs_id_infer_auto(0, &own_addr_type);
@@ -558,11 +558,11 @@ static void blecent_connect_if_interesting(void *disc)
     }
 
     // Try to connect the the advertiser.  Allow 30 seconds (30000 ms) for timeout.
-#if CONFIG_EXAMPLE_EXTENDED_ADV
-    addr = &((struct ble_gap_ext_disc_desc *)disc)->addr;
-#else
-    addr = &((struct ble_gap_disc_desc *)disc)->addr;
-#endif
+    #if CONFIG_EXAMPLE_EXTENDED_ADV
+        addr = &((struct ble_gap_ext_disc_desc *)disc)->addr;
+    #else
+        addr = &((struct ble_gap_disc_desc *)disc)->addr;
+    #endif
 
     rc = ble_gap_connect(own_addr_type, addr, 30000, NULL,
                          blecent_gap_event, NULL);
@@ -578,7 +578,6 @@ static void blecent_connect_if_interesting(void *disc)
 static void blecent_power_control(uint16_t conn_handle)
 {
     int rc;
-
     rc = ble_gap_read_remote_transmit_power_level(conn_handle, 0x01 );  // Attempting on LE 1M phy
     assert (rc == 0);
 
@@ -599,7 +598,6 @@ static void blecent_power_control(uint16_t conn_handle)
 // @param event                 The event being signalled.
 // @param arg                   Application-specified argument; unused by
 //                                  blecent.
-//
 // @return                      0 if the application successfully handled the
 //                                  event; nonzero on failure.  The semantics
 //                                  of the return code is specific to the
@@ -645,12 +643,12 @@ static int blecent_gap_event(struct ble_gap_event *event, void *arg)
                 return 0;
             }
 
-#if MYNEWT_VAL(BLE_POWER_CONTROL)
+    #if MYNEWT_VAL(BLE_POWER_CONTROL)
             blecent_power_control(event->connect.conn_handle);
-#endif
+    #endif
 
-#if MYNEWT_VAL(BLE_HCI_VS)
-#if MYNEWT_VAL(BLE_POWER_CONTROL)
+    #if MYNEWT_VAL(BLE_HCI_VS)
+    #if MYNEWT_VAL(BLE_POWER_CONTROL)
 	    memset(&params, 0x0, sizeof(struct ble_gap_set_auto_pcl_params));
 	    params.conn_handle = event->connect.conn_handle;
             rc = ble_gap_set_auto_pcl_param(&params);
@@ -661,10 +659,10 @@ static int blecent_gap_event(struct ble_gap_event *event, void *arg)
             else {
                MODLOG_DFLT(INFO, "Successfully issued VSC , rc = %d \n", rc);
 	    }
-#endif
-#endif
+    #endif
+    #endif
 
-#if CONFIG_EXAMPLE_ENCRYPTION
+        #if CONFIG_EXAMPLE_ENCRYPTION
             // Initiate security - It will perform
             // Pairing (Exchange keys)
             // Bonding (Store keys)
@@ -678,7 +676,7 @@ static int blecent_gap_event(struct ble_gap_event *event, void *arg)
             } else {
                 MODLOG_DFLT(INFO, "Connection secured\n");
             }
-#else
+        #else
             // Perform service discovery 
             rc = peer_disc_all(event->connect.conn_handle,
                         blecent_on_disc_complete, NULL);
@@ -686,16 +684,14 @@ static int blecent_gap_event(struct ble_gap_event *event, void *arg)
                 MODLOG_DFLT(ERROR, "Failed to discover services; rc=%d\n", rc);
                 return 0;
             }
-#endif
+        #endif
         } else {
             // Connection attempt failed; resume scanning. 
             MODLOG_DFLT(ERROR, "Error: Connection failed; status=%d\n",
                         event->connect.status);
             blecent_scan();
         }
-
         return 0;
-
     case BLE_GAP_EVENT_DISCONNECT:
         // Connection terminated. 
         MODLOG_DFLT(INFO, "disconnect; reason=%d ", event->disconnect.reason);
@@ -708,12 +704,10 @@ static int blecent_gap_event(struct ble_gap_event *event, void *arg)
         // Resume scanning. 
         blecent_scan();
         return 0;
-
     case BLE_GAP_EVENT_DISC_COMPLETE:
         MODLOG_DFLT(INFO, "discovery complete; reason=%d\n",
                     event->disc_complete.reason);
         return 0;
-
     case BLE_GAP_EVENT_ENC_CHANGE:
         // Encryption has been enabled or disabled for this connection. 
         MODLOG_DFLT(INFO, "encryption change event; status=%d ",
@@ -721,7 +715,7 @@ static int blecent_gap_event(struct ble_gap_event *event, void *arg)
         rc = ble_gap_conn_find(event->enc_change.conn_handle, &desc);
         assert(rc == 0);
         print_conn_desc(&desc);
-#if CONFIG_EXAMPLE_ENCRYPTION
+        #if CONFIG_EXAMPLE_ENCRYPTION
         // Go for service discovery after encryption has been successfully enabled 
         rc = peer_disc_all(event->connect.conn_handle,
                            blecent_on_disc_complete, NULL);
@@ -729,9 +723,8 @@ static int blecent_gap_event(struct ble_gap_event *event, void *arg)
             MODLOG_DFLT(ERROR, "Failed to discover services; rc=%d\n", rc);
             return 0;
         }
-#endif
+        #endif
         return 0;
-
     case BLE_GAP_EVENT_NOTIFY_RX:
         // Peer sent us a notification or indication. 
         MODLOG_DFLT(INFO, "received %s; conn_handle=%d attr_handle=%d "
@@ -746,14 +739,12 @@ static int blecent_gap_event(struct ble_gap_event *event, void *arg)
         // Attribute data is contained in event->notify_rx.om. 
         // Use `os_mbuf_copydata` to copy the data received in notification mbuf 
         return 0;
-
     case BLE_GAP_EVENT_MTU:
         MODLOG_DFLT(INFO, "mtu update event; conn_handle=%d cid=%d mtu=%d\n",
                     event->mtu.conn_handle,
                     event->mtu.channel_id,
                     event->mtu.value);
         return 0;
-
     case BLE_GAP_EVENT_REPEAT_PAIRING:
         // We already have a bond with the peer, but it is attempting to establish a new secure link.  
         // This app sacrifices security for convenience: just throw away the old bond and accept the new link.
@@ -765,15 +756,15 @@ static int blecent_gap_event(struct ble_gap_event *event, void *arg)
         // Return BLE_GAP_REPEAT_PAIRING_RETRY to indicate that the host should continue with the pairing operation.
         return BLE_GAP_REPEAT_PAIRING_RETRY;
 
-#if CONFIG_EXAMPLE_EXTENDED_ADV
+    #if CONFIG_EXAMPLE_EXTENDED_ADV
     case BLE_GAP_EVENT_EXT_DISC:
         // An advertisement report was received during GAP discovery. 
         ext_print_adv_report(&event->disc);
         blecent_connect_if_interesting(&event->disc);
         return 0;
-#endif
+    #endif
 
-#if MYNEWT_VAL(BLE_POWER_CONTROL)
+    #if MYNEWT_VAL(BLE_POWER_CONTROL)
     case BLE_GAP_EVENT_TRANSMIT_POWER:
 	MODLOG_DFLT(INFO, "Transmit power event : status=%d conn_handle=%d reason=%d "
                           "phy=%d power_level=%d power_level_flag=%d delta=%d",
@@ -793,30 +784,28 @@ static int blecent_gap_event(struct ble_gap_event *event, void *arg)
 		    event->pathloss_threshold.current_path_loss,
 		    event->pathloss_threshold.zone_entered);
 	return 0;
-#endif
+    #endif
     default:
         return 0;
     }
 }
 
-static void
-blecent_on_reset(int reason)
+static void blecent_on_reset(int reason)
 {
     MODLOG_DFLT(ERROR, "Resetting state; reason=%d\n", reason);
 }
 
-static void
-blecent_on_sync(void)
+static void blecent_on_sync(void)
 {
     int rc;
     // Make sure we have proper identity address set (public preferred) 
     rc = ble_hs_util_ensure_addr(0);
     assert(rc == 0);
 
-#if !CONFIG_EXAMPLE_INIT_DEINIT_LOOP
+    #if !CONFIG_EXAMPLE_INIT_DEINIT_LOOP
     // Begin scanning for a peripheral to connect to. 
     blecent_scan();
-#endif
+    #endif
 }
 
 void blecent_host_task(void *param)
@@ -824,7 +813,6 @@ void blecent_host_task(void *param)
     ESP_LOGI(tag, "BLE Host Task Started");
     // This function will return only when nimble_port_stop() is executed 
     nimble_port_run();
-
     nimble_port_freertos_deinit();
 }
 
