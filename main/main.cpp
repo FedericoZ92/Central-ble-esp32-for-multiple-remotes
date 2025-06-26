@@ -15,8 +15,33 @@
 #include "services/gap/ble_svc_gap.h"
 #include "ble_cts_cent.h"
 #include "services/cts/ble_svc_cts.h"
+//fede
+#include "host/ble_uuid.h"
+#include "uuids.h"
+
 
 #define BLE_TAG "ble"
+#define MAIN_TAG "main"
+
+/*static struct ble_uuid uuid_svc = {
+    .type = BLE_UUID_TYPE_16,
+    .u = {
+        .value16 = BLE_SVC_CTS_UUID16
+    }
+};
+
+static struct ble_uuid uuid_chr = {
+    .type = BLE_UUID_TYPE_16,
+    .u = {
+        .value16 = BLE_SVC_CTS_CHR_UUID16_CURRENT_TIME
+    }
+};*/
+
+//static const ble_uuid_t uuid_svc = BLE_UUID16_INIT(BLE_SVC_CTS_UUID16);
+//static const ble_uuid_t uuid_chr = BLE_UUID16_INIT(BLE_SVC_CTS_CHR_UUID16_CURRENT_TIME);
+
+
+
 
 static const char *tag = "NimBLE_CTS_CENT";
 static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg);
@@ -76,16 +101,15 @@ static int ble_cts_cent_on_read(uint16_t conn_handle,
 
 // Performs read on the current time characteristic
 static int ble_cts_cent_read_time(const struct peer *peer) {
-    const struct peer_chr *chr;
     int rc;
-
     // Subscribe to notifications for the Current Time Characteristic.
     // A central enables notifications by writing two bytes (1, 0) to the
     // characteristic's client-characteristic-configuration-descriptor (CCCD).
+    //chr = peer_chr_find_uuid(peer, &uuid_svc, &uuid_chr);
+    const struct peer_chr *chr = peer_chr_find_uuid(peer,
+        (const ble_uuid_t *)&uuid_svc,
+        (const ble_uuid_t *)&uuid_chr);
 
-    chr = peer_chr_find_uuid(peer,
-                             BLE_UUID16_DECLARE(BLE_SVC_CTS_UUID16),
-                             BLE_UUID16_DECLARE(BLE_SVC_CTS_CHR_UUID16_CURRENT_TIME));
     if (chr == NULL) {
         ESP_LOGE(BLE_TAG, "Error: Peer doesn't support the CTS characteristic");
         return ble_gap_terminate(peer->conn_handle, BLE_ERR_REM_USER_CONN_TERM);
@@ -398,8 +422,10 @@ void ble_cts_cent_host_task(void *param)
 }
 
 
-void task_main(void *pvParameters)
+void app_main(void *pvParameters)
 {
+    esp_log_level_set(BLE_TAG, ESP_LOG_DEBUG); 
+    ESP_LOGI(MAIN_TAG, "Entering main");
     int rc;
     // Initialize NVS — it is used to store PHY calibration data
     esp_err_t ret = nvs_flash_init();
@@ -432,4 +458,10 @@ void task_main(void *pvParameters)
     ble_store_config_init();
 
     nimble_port_freertos_init(ble_cts_cent_host_task);
+
+    // Main loop with 1 second delay
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(1000));  // Delay for 1000 ms (1 second)
+    }
+    ESP_LOGE(MAIN_TAG, "Leaving main");
 }
