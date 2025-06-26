@@ -15,6 +15,9 @@
 #include "services/gap/ble_svc_gap.h"
 #include "ble_cts_cent.h"
 #include "services/cts/ble_svc_cts.h"
+//task
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 //fede
 #include "host/ble_uuid.h"
 #include "uuids.h"
@@ -422,7 +425,7 @@ void ble_cts_cent_host_task(void *param)
 }
 
 
-void app_main(void *pvParameters)
+void task_main(void *pvParameters) 
 {
     esp_log_level_set(BLE_TAG, ESP_LOG_DEBUG); 
     ESP_LOGI(MAIN_TAG, "Entering main");
@@ -455,7 +458,8 @@ void app_main(void *pvParameters)
     assert(rc == 0);
 
     // XXX Need to have template for store
-    ble_store_config_init();
+    // TODO
+    //ble_store_config_init(); // TODO: add this back
 
     nimble_port_freertos_init(ble_cts_cent_host_task);
 
@@ -464,4 +468,9 @@ void app_main(void *pvParameters)
         vTaskDelay(pdMS_TO_TICKS(1000));  // Delay for 1000 ms (1 second)
     }
     ESP_LOGE(MAIN_TAG, "Leaving main");
+}
+
+extern "C" void app_main(void) 
+{
+    xTaskCreate(task_main, "task_main", 4096, NULL, 5, NULL);
 }
