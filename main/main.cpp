@@ -22,28 +22,8 @@
 #include "host/ble_uuid.h"
 #include "uuids.h"
 
-
 #define BLE_TAG "ble"
 #define MAIN_TAG "main"
-
-/*static struct ble_uuid uuid_svc = {
-    .type = BLE_UUID_TYPE_16,
-    .u = {
-        .value16 = BLE_SVC_CTS_UUID16
-    }
-};
-
-static struct ble_uuid uuid_chr = {
-    .type = BLE_UUID_TYPE_16,
-    .u = {
-        .value16 = BLE_SVC_CTS_CHR_UUID16_CURRENT_TIME
-    }
-};*/
-
-//static const ble_uuid_t uuid_svc = BLE_UUID16_INIT(BLE_SVC_CTS_UUID16);
-//static const ble_uuid_t uuid_chr = BLE_UUID16_INIT(BLE_SVC_CTS_CHR_UUID16_CURRENT_TIME);
-
-
 
 
 static const char *tag = "NimBLE_CTS_CENT";
@@ -64,7 +44,8 @@ void ble_store_config_init(void);
 static void ble_cts_cent_scan(void);
 
 // Prints the current time from the CTS structure
-void printtime(struct ble_svc_cts_curr_time ctime) {
+void printtime(struct ble_svc_cts_curr_time ctime) 
+{
     ESP_LOGI(BLE_TAG, "Date : %d/%d/%d %s",
              ctime.et_256.d_d_t.d_t.day,
              ctime.et_256.d_d_t.d_t.month,
@@ -83,7 +64,8 @@ void printtime(struct ble_svc_cts_curr_time ctime) {
 static int ble_cts_cent_on_read(uint16_t conn_handle,
                                 const struct ble_gatt_error *error,
                                 struct ble_gatt_attr *attr,
-                                void *arg) {
+                                void *arg) 
+                                {
     struct ble_svc_cts_curr_time ctime; // store the read time
 
     ESP_LOGI(BLE_TAG, "Read Current time complete; status=%d conn_handle=%d",
@@ -103,11 +85,11 @@ static int ble_cts_cent_on_read(uint16_t conn_handle,
 }
 
 // Performs read on the current time characteristic
-static int ble_cts_cent_read_time(const struct peer *peer) {
+static int ble_cts_cent_read_time(const struct peer *peer) 
+{
     int rc;
     // Subscribe to notifications for the Current Time Characteristic.
-    // A central enables notifications by writing two bytes (1, 0) to the
-    // characteristic's client-characteristic-configuration-descriptor (CCCD).
+    // A central enables notifications by writing two bytes (1, 0) to the characteristic's client-characteristic-configuration-descriptor (CCCD).
     //chr = peer_chr_find_uuid(peer, &uuid_svc, &uuid_chr);
     const struct peer_chr *chr = peer_chr_find_uuid(peer,
         (const ble_uuid_t *)&uuid_svc,
@@ -129,7 +111,8 @@ static int ble_cts_cent_read_time(const struct peer *peer) {
 }
 
 // Called when service discovery of the specified peer has completed.
-static void ble_cts_cent_on_disc_complete(const struct peer *peer, int status, void *arg) {
+static void ble_cts_cent_on_disc_complete(const struct peer *peer, int status, void *arg) 
+{
     if (status != 0) {
         // Service discovery failed. Terminate the connection.
         ESP_LOGE(BLE_TAG, "Error: Service discovery failed; status=%d conn_handle=%d", status, peer->conn_handle);
@@ -137,16 +120,15 @@ static void ble_cts_cent_on_disc_complete(const struct peer *peer, int status, v
         return;
     }
 
-    // Service discovery has completed successfully. Now we have a complete
-    // list of services, characteristics, and descriptors that the peer supports.
+    // Service discovery has completed successfully. 
+    // Now we have a complete list of services, characteristics, and descriptors that the peer supports.
     ESP_LOGI(BLE_TAG, "Service discovery complete; status=%d conn_handle=%d", status, peer->conn_handle);
-
     // Now perform GATT procedure against the peer: read for the cts service.
     ble_cts_cent_read_time(peer);
 }
 
-// Initiates the GAP general discovery procedure.
-static void ble_cts_cent_scan(void) {
+static void ble_cts_cent_scan(void) // Initiates the GAP general discovery procedure.
+{
     uint8_t own_addr_type;
     struct ble_gap_disc_params disc_params;
     int rc;
@@ -158,19 +140,15 @@ static void ble_cts_cent_scan(void) {
         return;
     }
 
-    // Tell the controller to filter duplicates; we don't want to process
-    // repeated advertisements from the same device.
+    // Tell the controller to filter duplicates; we don't want to process repeated advertisements from the same device.
     disc_params.filter_duplicates = 1;
-
     // Perform a passive scan. I.e., don't send follow-up scan requests to each advertiser.
     disc_params.passive = 1;
-
     // Use defaults for the rest of the parameters.
     disc_params.itvl = 0;
     disc_params.window = 0;
     disc_params.filter_policy = 0;
     disc_params.limited = 0;
-
     rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &disc_params,
                       ble_cts_cent_gap_event, NULL);
     if (rc != 0) {
@@ -178,11 +156,30 @@ static void ble_cts_cent_scan(void) {
     }
 }
 
-// Indicates whether we should try to connect to the sender of the specified
-// advertisement. The function returns a positive result if the device
-// advertises connectability and support for the Current Time Service.
+// Indicates whether we should try to connect to the sender of the specified advertisement. 
+// The function returns a positive result if the device advertises connectability and support for the Current Time Service.
 static int ble_cts_cent_should_connect(const struct ble_gap_disc_desc *disc)
 {
+        // Example: Look for HID service UUID (0x1812)
+    static const ble_uuid_t hid_uuid = {
+        .uuid = 0x1812,
+        .type = BLE_UUID_TYPE_BLE
+    };
+
+    // Search advertisement data for HID service UUID
+    ble_uuid_t found_uuid;
+    uint32_t index = 0;
+    while (sd_ble_uuid_decode(sizeof(uint16_t), &p_adv_report->data.p_data[index], &found_uuid) == NRF_SUCCESS)
+    {
+        if (found_uuid.uuid == hid_uuid.uuid && found_uuid.type == BLE_UUID_TYPE_BLE)
+        {
+            return true;
+        }
+        index += sizeof(uint16_t); // move to next potential UUID in adv data
+    }
+
+    return false;
+    /*
     struct ble_hs_adv_fields fields;
     int rc;
     int i;
@@ -215,14 +212,12 @@ static int ble_cts_cent_should_connect(const struct ble_gap_disc_desc *disc)
             return 1;
         }
     }
-
-    return 0;
+    return 0;*/
 }
 
 
-// Connects to the sender of the specified advertisement if it looks
-// interesting. A device is "interesting" if it advertises connectability and
-// support for the Current Time service.
+// Connects to the sender of the specified advertisement if it looks interesting. 
+// A device is "interesting" if it advertises connectability and support for the Current Time service.
 static void ble_cts_cent_connect_if_interesting(void *disc)
 {
     uint8_t own_addr_type;
@@ -234,14 +229,14 @@ static void ble_cts_cent_connect_if_interesting(void *disc)
         return;
     }
 
-#if !(MYNEWT_VAL(BLE_HOST_ALLOW_CONNECT_WITH_SCAN))
-    // Scanning must be stopped before a connection can be initiated.
-    rc = ble_gap_disc_cancel();
-    if (rc != 0) {
-        ESP_LOGD(BLE_TAG, "Failed to cancel scan; rc=%d", rc);
-        return;
-    }
-#endif
+    #if !(MYNEWT_VAL(BLE_HOST_ALLOW_CONNECT_WITH_SCAN))
+        // Scanning must be stopped before a connection can be initiated.
+        rc = ble_gap_disc_cancel();
+        if (rc != 0) {
+            ESP_LOGD(BLE_TAG, "Failed to cancel scan; rc=%d", rc);
+            return;
+        }
+    #endif
 
     // Figure out address to use for connect (no privacy for now)
     rc = ble_hs_id_infer_auto(0, &own_addr_type);
@@ -309,25 +304,25 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
                 return 0;
             }
 
-#if CONFIG_EXAMPLE_ENCRYPTION
-            // Initiate security: Pairing, Bonding, Encryption
-            rc = ble_gap_security_initiate(event->link_estab.conn_handle);
-            if (rc != 0) {
-                ESP_LOGI(BLE_TAG, "Security could not be initiated, rc = %d", rc);
-                return ble_gap_terminate(event->link_estab.conn_handle,
-                                         BLE_ERR_REM_USER_CONN_TERM);
-            } else {
-                ESP_LOGI(BLE_TAG, "Connection secured");
-            }
-#else
-            // Perform service discovery
-            rc = peer_disc_all(event->link_estab.conn_handle,
-                               ble_cts_cent_on_disc_complete, NULL);
-            if (rc != 0) {
-                ESP_LOGE(BLE_TAG, "Failed to discover services; rc=%d", rc);
-                return 0;
-            }
-#endif
+            #if CONFIG_EXAMPLE_ENCRYPTION
+                // Initiate security: Pairing, Bonding, Encryption
+                rc = ble_gap_security_initiate(event->link_estab.conn_handle);
+                if (rc != 0) {
+                    ESP_LOGI(BLE_TAG, "Security could not be initiated, rc = %d", rc);
+                    return ble_gap_terminate(event->link_estab.conn_handle,
+                                            BLE_ERR_REM_USER_CONN_TERM);
+                } else {
+                    ESP_LOGI(BLE_TAG, "Connection secured");
+                }
+            #else
+                // Perform service discovery
+                rc = peer_disc_all(event->link_estab.conn_handle,
+                                ble_cts_cent_on_disc_complete, NULL);
+                if (rc != 0) {
+                    ESP_LOGE(BLE_TAG, "Failed to discover services; rc=%d", rc);
+                    return 0;
+                }
+            #endif
         } else {
             // Connection attempt failed; resume scanning.
             ESP_LOGE(BLE_TAG, "Error: Connection failed; status=%d",
@@ -337,16 +332,11 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
         return 0;
 
     case BLE_GAP_EVENT_DISCONNECT:
-        // Connection terminated.
         ESP_LOGI(BLE_TAG, "disconnect; reason=%d ", event->disconnect.reason);
         print_conn_desc(&event->disconnect.conn);
         ESP_LOGI(BLE_TAG, "\n");
-
-        // Forget about peer.
-        peer_delete(event->disconnect.conn.conn_handle);
-
-        // Resume scanning.
-        ble_cts_cent_scan();
+        peer_delete(event->disconnect.conn.conn_handle); // Forget about peer.
+        ble_cts_cent_scan(); // Resume scanning.
         return 0;
 
     case BLE_GAP_EVENT_DISC_COMPLETE:
@@ -361,26 +351,24 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
         rc = ble_gap_conn_find(event->enc_change.conn_handle, &desc);
         assert(rc == 0);
         print_conn_desc(&desc);
-#if CONFIG_EXAMPLE_ENCRYPTION
-        // Go for service discovery after encryption has been successfully enabled
-        rc = peer_disc_all(event->enc_change.conn_handle,
-                           ble_cts_cent_on_disc_complete, NULL);
-        if (rc != 0) {
-            ESP_LOGE(BLE_TAG, "Failed to discover services; rc=%d", rc);
-            return 0;
-        }
-#endif
+        #if CONFIG_EXAMPLE_ENCRYPTION
+            // Go for service discovery after encryption has been successfully enabled
+            rc = peer_disc_all(event->enc_change.conn_handle,
+                            ble_cts_cent_on_disc_complete, NULL);
+            if (rc != 0) {
+                ESP_LOGE(BLE_TAG, "Failed to discover services; rc=%d", rc);
+                return 0;
+            }
+        #endif
         return 0;
 
-    case BLE_GAP_EVENT_NOTIFY_RX:
-        // Peer sent us a notification or indication.
+    case BLE_GAP_EVENT_NOTIFY_RX: // Peer sent us a notification or indication.
         ESP_LOGI(BLE_TAG, "received %s; conn_handle=%d attr_handle=%d attr_len=%d",
                  event->notify_rx.indication ? "indication" : "notification",
                  event->notify_rx.conn_handle,
                  event->notify_rx.attr_handle,
                  OS_MBUF_PKTLEN(event->notify_rx.om));
-        // Attribute data is contained in event->notify_rx.om. Use
-        // `os_mbuf_copydata` to copy the data received in notification mbuf.
+        // Attribute data is contained in event->notify_rx.om. Use `os_mbuf_copydata` to copy the data received in notification mbuf.
         return 0;
 
     case BLE_GAP_EVENT_MTU:
@@ -395,35 +383,30 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
     }
 }
 
-
 static void ble_cts_cent_on_reset(int reason)
 {
     ESP_LOGE(BLE_TAG, "Resetting state; reason=%d", reason);
 }
 
-
 static void ble_cts_cent_on_sync(void)
 {
     int rc;
-
     // Make sure we have proper identity address set (public preferred)
     rc = ble_hs_util_ensure_addr(0);
     assert(rc == 0);
-
-    // Begin scanning for a peripheral to connect to.
-    ble_cts_cent_scan();
+    ble_cts_cent_scan(); // Begin scanning for a peripheral to connect to.
 }
-
 
 void ble_cts_cent_host_task(void *param)
 {
     ESP_LOGI(BLE_TAG, "BLE Host Task Started");
     // This function will return only when nimble_port_stop() is executed
     nimble_port_run();
-
     nimble_port_freertos_deinit();
 }
 
+
+//----------------------------------------------------------------------------------
 
 void task_main(void *pvParameters) 
 {
