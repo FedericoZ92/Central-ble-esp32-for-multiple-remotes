@@ -21,9 +21,32 @@
 //fede
 #include "host/ble_uuid.h"
 #include "uuids.h"
+//led
+#include "driver/gpio.h"
+//gattc
+#include "nimble/nimble_port.h"
+#include "host/ble_hs.h"
+#include "host/ble_gap.h"
+#include "host/ble_gatt.h"
+#include "host/util/util.h"
 
 #define BLE_TAG "ble"
 #define MAIN_TAG "main"
+
+
+#define LED_GPIO GPIO_NUM_48  // Use your chosen pin
+
+static void turnLedOn(bool status){
+        // Configure the pin as output
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << LED_GPIO),
+        .mode = GPIO_MODE_OUTPUT,
+    };
+    gpio_config(&io_conf);
+
+    // Turn on LED (depending on circuit: HIGH = ON or LOW = ON)
+    gpio_set_level(LED_GPIO, status);  // Set to 0 or 1 depending on wiring
+}
 
 
 static const char *tag = "NimBLE_CTS_CENT";
@@ -156,63 +179,43 @@ static void ble_cts_cent_scan(void) // Initiates the GAP general discovery proce
     }
 }
 
+static const uint8_t target_mac[6] = {0xFA, 0xA1, 0x01, 0x98, 0x07, 0x2A};
 // Indicates whether we should try to connect to the sender of the specified advertisement. 
 // The function returns a positive result if the device advertises connectability and support for the Current Time Service.
 static int ble_cts_cent_should_connect(const struct ble_gap_disc_desc *disc)
 {
-        // Example: Look for HID service UUID (0x1812)
-    static const ble_uuid_t hid_uuid = {
-        .uuid = 0x1812,
-        .type = BLE_UUID_TYPE_BLE
-    };
+    ESP_LOGI(BLE_TAG, "Found device MAC: %02X:%02X:%02X:%02X:%02X:%02X",
+            disc->addr.val[5], disc->addr.val[4], disc->addr.val[3], disc->addr.val[2], disc->addr.val[1], disc->addr.val[0]);
 
-    // Search advertisement data for HID service UUID
-    ble_uuid_t found_uuid;
-    uint32_t index = 0;
-    while (sd_ble_uuid_decode(sizeof(uint16_t), &p_adv_report->data.p_data[index], &found_uuid) == NRF_SUCCESS)
-    {
-        if (found_uuid.uuid == hid_uuid.uuid && found_uuid.type == BLE_UUID_TYPE_BLE)
-        {
+    // Compare the device address with target MAC
+    if (memcmp(disc->addr.val, target_mac, 6) == 0) {
+        ESP_LOGI(BLE_TAG, "Should connect!");
+        return true;  // connect if MAC matches
+    }
+    ESP_LOGE(BLE_TAG, "Should not connect!");
+    return false;     // otherwise don't connect
+
+/*
+    // HID Service UUID (16-bit)
+    static const ble_uuid16_t hid_uuid = BLE_UUID16_INIT(0x1812);
+
+    // Iterate through advertisement fields to find service UUIDs
+    struct ble_hs_adv_fields fields;
+    int rc = ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data);
+    if (rc != 0) {
+        return false;
+    }
+
+    // Check 16-bit service UUIDs
+    for (int i = 0; i < fields.num_uuids16; i++) {
+        const ble_uuid_t *uuid = &fields.uuids16[i].u;
+        if (ble_uuid_cmp(uuid, (const ble_uuid_t *)&hid_uuid) == 0) {
             return true;
         }
-        index += sizeof(uint16_t); // move to next potential UUID in adv data
     }
 
     return false;
-    /*
-    struct ble_hs_adv_fields fields;
-    int rc;
-    int i;
-
-    // The device has to be advertising connectability.
-    if (disc->event_type != BLE_HCI_ADV_RPT_EVTYPE_ADV_IND &&
-        disc->event_type != BLE_HCI_ADV_RPT_EVTYPE_DIR_IND) {
-        return 0;
-    }
-
-    rc = ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data);
-    if (rc != 0) {
-        return 0;
-    }
-
-    if (strlen(CONFIG_EXAMPLE_PEER_ADDR) && (strncmp(CONFIG_EXAMPLE_PEER_ADDR, "ADDR_ANY", strlen("ADDR_ANY")) != 0)) {
-        ESP_LOGI(BLE_TAG, "Peer address from menuconfig: %s", CONFIG_EXAMPLE_PEER_ADDR);
-        // Convert string to address
-        sscanf(CONFIG_EXAMPLE_PEER_ADDR, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-               &peer_addr[5], &peer_addr[4], &peer_addr[3],
-               &peer_addr[2], &peer_addr[1], &peer_addr[0]);
-        if (memcmp(peer_addr, disc->addr.val, sizeof(disc->addr.val)) != 0) {
-            return 0;
-        }
-    }
-
-    // The device has to advertise support for the Current Time service (0x1805).
-    for (i = 0; i < fields.num_uuids16; i++) {
-        if (ble_uuid_u16(&fields.uuids16[i].u) == BLE_SVC_CTS_UUID16) {
-            return 1;
-        }
-    }
-    return 0;*/
+  */
 }
 
 
@@ -273,6 +276,7 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
 
     switch (event->type) {
     case BLE_GAP_EVENT_DISC:
+        ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_DISC");
         rc = ble_hs_adv_parse_fields(&fields, event->disc.data,
                                      event->disc.length_data);
         if (rc != 0) {
@@ -287,10 +291,12 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
         return 0;
 
     case BLE_GAP_EVENT_LINK_ESTAB:
+        ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_LINK_ESTAB");
         // A new connection was established or a connection attempt failed.
         if (event->link_estab.status == 0) {
             // Connection successfully established.
-            ESP_LOGI(BLE_TAG, "Connection established ");
+            ESP_LOGI(BLE_TAG, "Connection established!!!!!!!!!!!!!!!!!!!!!!! ");
+            turnLedOn(true);
 
             rc = ble_gap_conn_find(event->link_estab.conn_handle, &desc);
             assert(rc == 0);
@@ -304,7 +310,7 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
                 return 0;
             }
 
-            #if CONFIG_EXAMPLE_ENCRYPTION
+            /*#if CONFIG_EXAMPLE_ENCRYPTION
                 // Initiate security: Pairing, Bonding, Encryption
                 rc = ble_gap_security_initiate(event->link_estab.conn_handle);
                 if (rc != 0) {
@@ -314,7 +320,7 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
                 } else {
                     ESP_LOGI(BLE_TAG, "Connection secured");
                 }
-            #else
+            #else*/
                 // Perform service discovery
                 rc = peer_disc_all(event->link_estab.conn_handle,
                                 ble_cts_cent_on_disc_complete, NULL);
@@ -322,8 +328,9 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
                     ESP_LOGE(BLE_TAG, "Failed to discover services; rc=%d", rc);
                     return 0;
                 }
-            #endif
+            //#endif
         } else {
+            turnLedOn(false);
             // Connection attempt failed; resume scanning.
             ESP_LOGE(BLE_TAG, "Error: Connection failed; status=%d",
                      event->link_estab.status);
@@ -332,26 +339,29 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
         return 0;
 
     case BLE_GAP_EVENT_DISCONNECT:
+        ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_DISCONNECT");
+        turnLedOn(true);
         ESP_LOGI(BLE_TAG, "disconnect; reason=%d ", event->disconnect.reason);
         print_conn_desc(&event->disconnect.conn);
         ESP_LOGI(BLE_TAG, "\n");
         peer_delete(event->disconnect.conn.conn_handle); // Forget about peer.
-        ble_cts_cent_scan(); // Resume scanning.
+        ble_cts_cent_scan(); // Resume scanning.q
         return 0;
 
     case BLE_GAP_EVENT_DISC_COMPLETE:
-        ESP_LOGI(BLE_TAG, "discovery complete; reason=%d",
+        ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_DISC_COMPLETE discovery complete; reason=%d",
                  event->disc_complete.reason);
         return 0;
 
     case BLE_GAP_EVENT_ENC_CHANGE:
+        ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_ENC_CHANGE");
         // Encryption has been enabled or disabled for this connection.
         ESP_LOGI(BLE_TAG, "encryption change event; status=%d",
                  event->enc_change.status);
         rc = ble_gap_conn_find(event->enc_change.conn_handle, &desc);
         assert(rc == 0);
         print_conn_desc(&desc);
-        #if CONFIG_EXAMPLE_ENCRYPTION
+        /*#if CONFIG_EXAMPLE_ENCRYPTION
             // Go for service discovery after encryption has been successfully enabled
             rc = peer_disc_all(event->enc_change.conn_handle,
                             ble_cts_cent_on_disc_complete, NULL);
@@ -359,10 +369,11 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
                 ESP_LOGE(BLE_TAG, "Failed to discover services; rc=%d", rc);
                 return 0;
             }
-        #endif
+        #endif*/
         return 0;
 
     case BLE_GAP_EVENT_NOTIFY_RX: // Peer sent us a notification or indication.
+        ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_NOTIFY_RX");
         ESP_LOGI(BLE_TAG, "received %s; conn_handle=%d attr_handle=%d attr_len=%d",
                  event->notify_rx.indication ? "indication" : "notification",
                  event->notify_rx.conn_handle,
@@ -372,6 +383,7 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
         return 0;
 
     case BLE_GAP_EVENT_MTU:
+        ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_MTU");
         ESP_LOGI(BLE_TAG, "mtu update event; conn_handle=%d cid=%d mtu=%d",
                  event->mtu.conn_handle,
                  event->mtu.channel_id,
@@ -382,6 +394,8 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
         return 0;
     }
 }
+
+
 
 static void ble_cts_cent_on_reset(int reason)
 {
