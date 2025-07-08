@@ -30,6 +30,8 @@
 #include "host/ble_gatt.h"
 #include "host/util/util.h"
 
+#include "host/ble_gatt.h"
+
 #define BLE_TAG "ble"
 #define MAIN_TAG "main"
 
@@ -123,8 +125,7 @@ static int ble_cts_cent_read_time(const struct peer *peer)
         return ble_gap_terminate(peer->conn_handle, BLE_ERR_REM_USER_CONN_TERM);
     }
 
-    rc = ble_gattc_read(peer->conn_handle, chr->chr.val_handle,
-                        ble_cts_cent_on_read, NULL);
+    rc = ble_gattc_read(peer->conn_handle, chr->chr.val_handle, ble_cts_cent_on_read, NULL);
     if (rc != 0) {
         ESP_LOGE(BLE_TAG, "Error: Failed to read characteristic; rc=%d", rc);
         return ble_gap_terminate(peer->conn_handle, BLE_ERR_REM_USER_CONN_TERM);
@@ -251,13 +252,32 @@ static void ble_cts_cent_connect_if_interesting(void *disc)
     // Try to connect to the advertiser. Allow 30 seconds (30000 ms) timeout.
     addr = &((struct ble_gap_disc_desc *)disc)->addr;
 
-    rc = ble_gap_connect(own_addr_type, addr, 30000, NULL,
-                         ble_cts_cent_gap_event, NULL);
+    rc = ble_gap_connect(own_addr_type, addr, 30000, NULL, ble_cts_cent_gap_event, NULL);
     if (rc != 0) {
         ESP_LOGE(BLE_TAG, "Error: Failed to connect to device; addr_type=%d addr=%s; rc=%d",
                  addr->type, addr_str(addr->val), rc);
         return;
     }
+}
+
+int blecent_on_disc_chr(uint16_t conn_handle,
+                        const struct ble_gatt_error *error,
+                        const struct ble_gatt_chr *chr,
+                        void *arg)
+{
+    ESP_LOGI(BLE_TAG, "blecent_on_disc_chr");
+    // This is where you detect the characteristic you care about
+    //TODO
+    /*if (chr->uuid.u.type == BLE_UUID_TYPE_16 &&
+        chr->uuid.u16.value == YOUR_CHAR_UUID) {
+
+        uint16_t char_val_handle = chr->val_handle;
+        uint16_t cccd_handle = chr->val_handle + 1;
+
+        // Set up subscription here
+        ...
+    }*/
+    return 0;
 }
 
 // The nimble host executes this callback when a GAP event occurs.  
@@ -280,16 +300,14 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
         rc = ble_hs_adv_parse_fields(&fields, event->disc.data,
                                      event->disc.length_data);
         if (rc != 0) {
-            return 0;
+            break;
         }
 
         // An advertisement report was received during GAP discovery.
         print_adv_fields(&fields);
-
         // Try to connect to the advertiser if it looks interesting.
         ble_cts_cent_connect_if_interesting(&event->disc);
-        return 0;
-
+        break;
     case BLE_GAP_EVENT_LINK_ESTAB:
         ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_LINK_ESTAB");
         // A new connection was established or a connection attempt failed.
@@ -336,8 +354,23 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
                      event->link_estab.status);
             ble_cts_cent_scan();
         }
-        return 0;
+        break;
+    case BLE_GAP_EVENT_CONNECT:
+        if (event->connect.status == 0) {
+            ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_CONNECT. Connected to peer");
 
+            // ✅ You call this: Start discovering services or characteristics
+            ble_gattc_disc_all_chrs(
+                event->connect.conn_handle,
+                1,                      // start_handle
+                0xffff,                 // end_handle
+                blecent_on_disc_chr,    // callback for each characteristic
+                NULL                    // optional argument
+            );
+        } else {
+            ESP_LOGE(BLE_TAG, "Connection failed: %d", event->connect.status);
+        }
+        break;        
     case BLE_GAP_EVENT_DISCONNECT:
         ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_DISCONNECT");
         turnLedOn(true);
@@ -346,13 +379,10 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
         ESP_LOGI(BLE_TAG, "\n");
         peer_delete(event->disconnect.conn.conn_handle); // Forget about peer.
         ble_cts_cent_scan(); // Resume scanning.q
-        return 0;
-
+        break;
     case BLE_GAP_EVENT_DISC_COMPLETE:
-        ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_DISC_COMPLETE discovery complete; reason=%d",
-                 event->disc_complete.reason);
-        return 0;
-
+        ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_DISC_COMPLETE discovery complete; reason=%d", event->disc_complete.reason);
+        break;
     case BLE_GAP_EVENT_ENC_CHANGE:
         ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_ENC_CHANGE");
         // Encryption has been enabled or disabled for this connection.
@@ -361,41 +391,28 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
         rc = ble_gap_conn_find(event->enc_change.conn_handle, &desc);
         assert(rc == 0);
         print_conn_desc(&desc);
-        /*#if CONFIG_EXAMPLE_ENCRYPTION
-            // Go for service discovery after encryption has been successfully enabled
-            rc = peer_disc_all(event->enc_change.conn_handle,
-                            ble_cts_cent_on_disc_complete, NULL);
-            if (rc != 0) {
-                ESP_LOGE(BLE_TAG, "Failed to discover services; rc=%d", rc);
-                return 0;
-            }
-        #endif*/
-        return 0;
-
+        break;
     case BLE_GAP_EVENT_NOTIFY_RX: // Peer sent us a notification or indication.
         ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_NOTIFY_RX");
         ESP_LOGI(BLE_TAG, "received %s; conn_handle=%d attr_handle=%d attr_len=%d",
-                 event->notify_rx.indication ? "indication" : "notification",
-                 event->notify_rx.conn_handle,
-                 event->notify_rx.attr_handle,
-                 OS_MBUF_PKTLEN(event->notify_rx.om));
+                            event->notify_rx.indication ? "indication" : "notification",
+                            event->notify_rx.conn_handle,
+                            event->notify_rx.attr_handle,
+                            OS_MBUF_PKTLEN(event->notify_rx.om));
         // Attribute data is contained in event->notify_rx.om. Use `os_mbuf_copydata` to copy the data received in notification mbuf.
-        return 0;
-
+        break;
     case BLE_GAP_EVENT_MTU:
         ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_MTU");
         ESP_LOGI(BLE_TAG, "mtu update event; conn_handle=%d cid=%d mtu=%d",
                  event->mtu.conn_handle,
                  event->mtu.channel_id,
                  event->mtu.value);
-        return 0;
-
+        break;
     default:
-        return 0;
+        break;
     }
+    return 0;
 }
-
-
 
 static void ble_cts_cent_on_reset(int reason)
 {
@@ -419,6 +436,46 @@ void ble_cts_cent_host_task(void *param)
     nimble_port_freertos_deinit();
 }
 
+static int on_notify_cb(uint16_t conn_handle,
+                        const struct ble_gatt_error *error,
+                        struct ble_gatt_attr *attr,
+                        void *arg)
+{
+    if (error->status != 0) {
+        ESP_LOGE(BLE_TAG, "Notification error: %d", error->status);
+        return 0;
+    }
+
+    ESP_LOGI(BLE_TAG, "Notification received: handle=%d, len=%d", attr->handle, attr->om->om_len);
+    uint8_t *data = attr->om->om_data;
+    for (int i = 0; i < attr->om->om_len; i++) {
+        printf("%02X ", data[i]);
+    }
+    printf("\n");
+
+    return 0;
+}
+
+static int blecent_on_disc_chr(const struct ble_gatt_error *error,
+                                uint16_t conn_handle,
+                                const struct ble_gatt_chr *chr,
+                                void *arg)
+{
+    if (error->status != 0) {
+        ESP_LOGE(BLE_TAG, "Characteristic discovery failed: %d", error->status);
+        return 0;
+    }
+
+    ESP_LOGI(BLE_TAG, "Characteristic discovered: val_handle=%d", chr->val_handle);
+
+    // Store handles
+    uint16_t char_val_handle = chr->val_handle;
+    uint16_t cccd_handle = chr->val_handle + 1; // assuming CCCD is immediately after
+
+    //
+
+    return 0;
+}
 
 //----------------------------------------------------------------------------------
 
