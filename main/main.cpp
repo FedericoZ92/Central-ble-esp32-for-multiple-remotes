@@ -446,7 +446,7 @@ static int on_notify_cb(uint16_t conn_handle,
         return 0;
     }
 
-    ESP_LOGI(BLE_TAG, "Notification received: handle=%d, len=%d", attr->handle, attr->om->om_len);
+    ESP_LOGD(BLE_TAG, "**********Notification received: handle=%d, len=%d", attr->handle, attr->om->om_len);
     uint8_t *data = attr->om->om_data;
     for (int i = 0; i < attr->om->om_len; i++) {
         printf("%02X ", data[i]);
@@ -472,7 +472,33 @@ static int blecent_on_disc_chr(const struct ble_gatt_error *error,
     uint16_t char_val_handle = chr->val_handle;
     uint16_t cccd_handle = chr->val_handle + 1; // assuming CCCD is immediately after
 
-    //
+    /*
+    // Match your target UUID here
+    if (chr->uuid.u.type == BLE_UUID_TYPE_16 &&
+        chr->uuid.u16.value == YOUR_CHAR_UUID) {
+
+        ESP_LOGI(BLE_TAG, "Found desired characteristic");
+
+        // Store value handle
+        your_val_handle = chr->val_handle;
+
+        // OPTIONAL: If you've already discovered descriptors, get CCCD handle here
+        your_cccd_handle = find_cccd_handle_somehow();  // OR just use val_handle + 1 as a guess
+
+        static struct ble_gatt_subscribe_params sub_params;
+        memset(&sub_params, 0, sizeof(sub_params));
+        sub_params.notify = on_notify_cb;
+        sub_params.value_handle = your_val_handle;
+        sub_params.cccd_handle = your_cccd_handle;
+
+        int rc = ble_gattc_subscribe(conn_handle, &sub_params);
+        if (rc != 0) {
+            ESP_LOGE(BLE_TAG, "Subscription failed: %d", rc);
+        } else {
+            ESP_LOGI(BLE_TAG, "Subscribed to notifications");
+        }
+    }    
+    */
 
     return 0;
 }
