@@ -134,22 +134,117 @@ static int ble_cts_cent_read_time(const struct peer *peer)
     return 0;
 }
 
-// Called when service discovery of the specified peer has completed.
-static void ble_cts_cent_on_disc_complete(const struct peer *peer, int status, void *arg) 
-{
-    if (status != 0) {
-        // Service discovery failed. Terminate the connection.
-        ESP_LOGE(BLE_TAG, "Error: Service discovery failed; status=%d conn_handle=%d", status, peer->conn_handle);
-        ble_gap_terminate(peer->conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-        return;
+static int on_cccd_written(uint16_t conn_handle,
+                           const struct ble_gatt_error *error,
+                           struct ble_gatt_attr *attr,
+                           void *arg) {
+    if (error->status == 0) {
+        ESP_LOGI(BLE_TAG, "Notifications enabled via CCCD");
+    } else {
+        ESP_LOGE(BLE_TAG, "Failed to write CCCD; status=%d", error->status);
+    }
+    return 0;
+}
+
+
+// BLE_GATT_DESC_CLIENT_CHAR_CFG is a constant that represents the UUID of the Client Characteristic Configuration Descriptor (CCCD) in the BLE GATT specification.
+// What is CCCD?
+// The Client Characteristic Configuration Descriptor (CCCD) is a special descriptor attached to a characteristic.
+// It controls whether notifications or indications are enabled or disabled for that characteristic.
+// Its UUID is standardized as 0x2902.
+// So in NimBLE / ESP-IDF
+// BLE_GATT_DESC_CLIENT_CHAR_CFG is typically defined as:
+// When you discover descriptors for a characteristic, checking if dsc->uuid.u16.value == BLE_GATT_DESC_CLIENT_CHAR_CFG lets you identify the CCCD.
+// You then write 0x0001 (notifications enabled) or 0x0002 (indications enabled) to this descriptor to enable remote notifications or indications.
+#define BLE_GATT_DESC_CLIENT_CHAR_CFG 0x2902
+#define MAX_NOTIFY_CHARS 5
+struct notify_sub {
+    uint16_t val_handle;
+    uint16_t cccd_handle;
+};
+static struct notify_sub notify_subs[MAX_NOTIFY_CHARS];
+static int notify_sub_count = 0;
+// Descriptor discovery callback
+static int on_descriptor_discovered(uint16_t conn_handle,
+                                    const struct ble_gatt_error *error,
+                                    uint16_t chr_val_handle,     
+                                    const struct ble_gatt_dsc *dsc,
+                                    void *arg) {
+    int idx = (int)(intptr_t)arg;
+    if (error->status != 0 || dsc == NULL) {
+        ESP_LOGI(BLE_TAG, "Descriptor discovery complete for notify_sub %d", idx);
+        // If CCCD handle found, enable notify
+        if (notify_subs[idx].cccd_handle != 0) {
+            uint8_t cccd_val[] = {0x01, 0x00};
+            int rc = ble_gattc_write_flat(conn_handle,
+                                          notify_subs[idx].cccd_handle,
+                                          cccd_val,
+                                          sizeof(cccd_val),
+                                          on_cccd_written,
+                                          NULL);
+            if (rc != 0) {
+                ESP_LOGE(BLE_TAG, "Failed to write CCCD for notify_sub %d rc=%d", idx, rc);
+            }
+        } else {
+            ESP_LOGW(BLE_TAG, "No CCCD handle found for notify_sub %d", idx);
+        }
+        return 0;
     }
 
-    // Service discovery has completed successfully. 
-    // Now we have a complete list of services, characteristics, and descriptors that the peer supports.
-    ESP_LOGI(BLE_TAG, "Service discovery complete; status=%d conn_handle=%d", status, peer->conn_handle);
-    // Now perform GATT procedure against the peer: read for the cts service.
-    ble_cts_cent_read_time(peer);
+    if (dsc->uuid.u16.value == BLE_GATT_DESC_CLIENT_CHAR_CFG) {
+        notify_subs[idx].cccd_handle = dsc->handle;
+        ESP_LOGI(BLE_TAG, "Found CCCD handle %d for notify_sub %d", dsc->handle, idx);
+    }
+    return 0;
 }
+
+static int on_characteristic_discovered(uint16_t conn_handle,
+                                        const struct ble_gatt_error *error,
+                                        const struct ble_gatt_chr *chr,
+                                        void *arg) {
+    if (error->status != 0 || chr == NULL) {
+        ESP_LOGI(BLE_TAG, "Characteristic discovery complete");
+        // After all characteristics discovered, discover descriptors for each notify characteristic
+        for (int i = 0; i < notify_sub_count; i++) {
+            int rc = ble_gattc_disc_all_dscs(conn_handle,
+                                             notify_subs[i].val_handle,
+                                             notify_subs[i].val_handle + 5,
+                                             on_descriptor_discovered,
+                                             (void*)(intptr_t)i);  // pass index as arg
+            if (rc != 0) {
+                ESP_LOGE(BLE_TAG, "Descriptor discovery failed for handle %d rc=%d",
+                         notify_subs[i].val_handle, rc);
+            }
+        }
+        return 0;
+    }
+
+    if ((chr->properties & BLE_GATT_CHR_PROP_NOTIFY) && notify_sub_count < MAX_NOTIFY_CHARS) {
+        notify_subs[notify_sub_count].val_handle = chr->val_handle;
+        notify_subs[notify_sub_count].cccd_handle = 0;  // unknown yet
+        ESP_LOGI(BLE_TAG, "Notify characteristic found, handle=%d", chr->val_handle);
+        notify_sub_count++;
+    }
+    return 0;
+}
+
+static int on_service_discovered(uint16_t conn_handle,
+                                 const struct ble_gatt_error *error,
+                                 const struct ble_gatt_svc *service,
+                                 void *arg) {
+    if (error->status != 0 || service == NULL) {
+        ESP_LOGI(BLE_TAG, "Service discovery complete");
+        ble_gattc_disc_all_chrs(conn_handle, 1, 0xFFFF, on_characteristic_discovered, NULL);
+        return 0;
+    }
+
+    char uuid_str[BLE_UUID_STR_LEN];
+    ble_uuid_to_str(&service->uuid.u, uuid_str);
+    ESP_LOGI(BLE_TAG, "Service found: UUID=%s", uuid_str);
+    return 0;
+}
+
+
 
 static void ble_cts_cent_scan(void) // Initiates the GAP general discovery procedure.
 {
@@ -195,28 +290,6 @@ static int ble_cts_cent_should_connect(const struct ble_gap_disc_desc *disc)
     }
     ESP_LOGE(BLE_TAG, "Should not connect!");
     return false;     // otherwise don't connect
-
-/*
-    // HID Service UUID (16-bit)
-    static const ble_uuid16_t hid_uuid = BLE_UUID16_INIT(0x1812);
-
-    // Iterate through advertisement fields to find service UUIDs
-    struct ble_hs_adv_fields fields;
-    int rc = ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data);
-    if (rc != 0) {
-        return false;
-    }
-
-    // Check 16-bit service UUIDs
-    for (int i = 0; i < fields.num_uuids16; i++) {
-        const ble_uuid_t *uuid = &fields.uuids16[i].u;
-        if (ble_uuid_cmp(uuid, (const ble_uuid_t *)&hid_uuid) == 0) {
-            return true;
-        }
-    }
-
-    return false;
-  */
 }
 
 
@@ -328,25 +401,12 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
                 return 0;
             }
 
-            /*#if CONFIG_EXAMPLE_ENCRYPTION
-                // Initiate security: Pairing, Bonding, Encryption
-                rc = ble_gap_security_initiate(event->link_estab.conn_handle);
-                if (rc != 0) {
-                    ESP_LOGI(BLE_TAG, "Security could not be initiated, rc = %d", rc);
-                    return ble_gap_terminate(event->link_estab.conn_handle,
-                                            BLE_ERR_REM_USER_CONN_TERM);
-                } else {
-                    ESP_LOGI(BLE_TAG, "Connection secured");
-                }
-            #else*/
-                // Perform service discovery
-                rc = peer_disc_all(event->link_estab.conn_handle,
-                                ble_cts_cent_on_disc_complete, NULL);
-                if (rc != 0) {
-                    ESP_LOGE(BLE_TAG, "Failed to discover services; rc=%d", rc);
-                    return 0;
-                }
-            //#endif
+            // Perform service discovery
+            rc = ble_gattc_disc_all_svcs(event->link_estab.conn_handle, on_service_discovered, NULL);
+            if (rc != 0) {
+                ESP_LOGE(BLE_TAG, "Failed to discover services; rc=%d", rc);
+                return 0;
+            }
         } else {
             turnLedOn(false);
             // Connection attempt failed; resume scanning.
@@ -359,7 +419,7 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
         if (event->connect.status == 0) {
             ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_CONNECT. Connected to peer");
 
-            // ✅ You call this: Start discovering services or characteristics
+            // You call this: Start discovering services or characteristics
             ble_gattc_disc_all_chrs(
                 event->connect.conn_handle,
                 1,                      // start_handle
@@ -407,7 +467,7 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
                  event->mtu.conn_handle,
                  event->mtu.channel_id,
                  event->mtu.value);
-        break;
+        break;        
     default:
         break;
     }
@@ -485,6 +545,7 @@ static int blecent_on_disc_chr(const struct ble_gatt_error *error,
         // OPTIONAL: If you've already discovered descriptors, get CCCD handle here
         your_cccd_handle = find_cccd_handle_somehow();  // OR just use val_handle + 1 as a guess
 
+
         static struct ble_gatt_subscribe_params sub_params;
         memset(&sub_params, 0, sizeof(sub_params));
         sub_params.notify = on_notify_cb;
@@ -507,6 +568,7 @@ static int blecent_on_disc_chr(const struct ble_gatt_error *error,
 
 void task_main(void *pvParameters) 
 {
+    esp_log_level_set("*", ESP_LOG_NONE);
     esp_log_level_set(BLE_TAG, ESP_LOG_DEBUG); 
     ESP_LOGI(MAIN_TAG, "Entering main");
     int rc;
