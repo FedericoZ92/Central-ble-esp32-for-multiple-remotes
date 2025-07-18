@@ -146,7 +146,43 @@ static int on_cccd_written(uint16_t conn_handle,
     return 0;
 }
 
+#define MAX_CONNECTIONS 4
+#define MAX_NOTIFY_CHARS_PER_CONN 5
+#define MAX_PEERS 4
+static ble_addr_t connected_peers[MAX_PEERS];
+static int num_connected_peers = 0;
+//
+struct notify_sub {
+    uint16_t val_handle;
+    uint16_t cccd_handle;
+};
 
+struct conn_notify_subs {
+    uint16_t conn_handle;
+    int notify_sub_count;
+    struct notify_sub notify_subs[MAX_NOTIFY_CHARS_PER_CONN];
+};
+
+static struct conn_notify_subs conn_notify_array[MAX_CONNECTIONS];
+
+static struct conn_notify_subs *get_conn_notify(uint16_t conn_handle) 
+{
+    for (int i = 0; i < MAX_CONNECTIONS; i++) {
+        if (conn_notify_array[i].conn_handle == conn_handle) {
+            return &conn_notify_array[i];
+        }
+    }
+    // Not found: find an empty slot
+    for (int i = 0; i < MAX_CONNECTIONS; i++) {
+        if (conn_notify_array[i].conn_handle == 0) {
+            conn_notify_array[i].conn_handle = conn_handle;
+            conn_notify_array[i].notify_sub_count = 0;
+            return &conn_notify_array[i];
+        }
+    }
+    return NULL; // no slot available
+}
+//
 // BLE_GATT_DESC_CLIENT_CHAR_CFG is a constant that represents the UUID of the Client Characteristic Configuration Descriptor (CCCD) in the BLE GATT specification.
 // What is CCCD?
 // The Client Characteristic Configuration Descriptor (CCCD) is a special descriptor attached to a characteristic.
@@ -158,26 +194,27 @@ static int on_cccd_written(uint16_t conn_handle,
 // You then write 0x0001 (notifications enabled) or 0x0002 (indications enabled) to this descriptor to enable remote notifications or indications.
 #define BLE_GATT_DESC_CLIENT_CHAR_CFG 0x2902
 #define MAX_NOTIFY_CHARS 5
-struct notify_sub {
-    uint16_t val_handle;
-    uint16_t cccd_handle;
-};
+
 static struct notify_sub notify_subs[MAX_NOTIFY_CHARS];
 static int notify_sub_count = 0;
 // Descriptor discovery callback
 static int on_descriptor_discovered(uint16_t conn_handle,
                                     const struct ble_gatt_error *error,
-                                    uint16_t chr_val_handle,     
+                                    uint16_t chr_val_handle,
                                     const struct ble_gatt_dsc *dsc,
                                     void *arg) {
     int idx = (int)(intptr_t)arg;
+    struct conn_notify_subs *conn_notify = get_conn_notify(conn_handle);
+    if (!conn_notify) {
+        ESP_LOGE(BLE_TAG, "No notify_sub slot for conn_handle %d", conn_handle);
+        return 0;
+    }
     if (error->status != 0 || dsc == NULL) {
         ESP_LOGI(BLE_TAG, "Descriptor discovery complete for notify_sub %d", idx);
-        // If CCCD handle found, enable notify
-        if (notify_subs[idx].cccd_handle != 0) {
+        if (conn_notify->notify_subs[idx].cccd_handle != 0) {
             uint8_t cccd_val[] = {0x01, 0x00};
             int rc = ble_gattc_write_flat(conn_handle,
-                                          notify_subs[idx].cccd_handle,
+                                          conn_notify->notify_subs[idx].cccd_handle,
                                           cccd_val,
                                           sizeof(cccd_val),
                                           on_cccd_written,
@@ -190,9 +227,8 @@ static int on_descriptor_discovered(uint16_t conn_handle,
         }
         return 0;
     }
-
     if (dsc->uuid.u16.value == BLE_GATT_DESC_CLIENT_CHAR_CFG) {
-        notify_subs[idx].cccd_handle = dsc->handle;
+        conn_notify->notify_subs[idx].cccd_handle = dsc->handle;
         ESP_LOGI(BLE_TAG, "Found CCCD handle %d for notify_sub %d", dsc->handle, idx);
     }
     return 0;
@@ -204,26 +240,36 @@ static int on_characteristic_discovered(uint16_t conn_handle,
                                         void *arg) {
     if (error->status != 0 || chr == NULL) {
         ESP_LOGI(BLE_TAG, "Characteristic discovery complete");
-        // After all characteristics discovered, discover descriptors for each notify characteristic
-        for (int i = 0; i < notify_sub_count; i++) {
+        struct conn_notify_subs *conn_notify = get_conn_notify(conn_handle);
+        if (!conn_notify) {
+            ESP_LOGE(BLE_TAG, "No notify_sub slot for conn_handle %d", conn_handle);
+            return 0;
+        }
+        for (int i = 0; i < conn_notify->notify_sub_count; i++) {
             int rc = ble_gattc_disc_all_dscs(conn_handle,
-                                             notify_subs[i].val_handle,
-                                             notify_subs[i].val_handle + 5,
+                                             conn_notify->notify_subs[i].val_handle,
+                                             conn_notify->notify_subs[i].val_handle + 5,
                                              on_descriptor_discovered,
-                                             (void*)(intptr_t)i);  // pass index as arg
+                                             (void*)(intptr_t)i);
             if (rc != 0) {
                 ESP_LOGE(BLE_TAG, "Descriptor discovery failed for handle %d rc=%d",
-                         notify_subs[i].val_handle, rc);
+                         conn_notify->notify_subs[i].val_handle, rc);
             }
         }
         return 0;
     }
-
-    if ((chr->properties & BLE_GATT_CHR_PROP_NOTIFY) && notify_sub_count < MAX_NOTIFY_CHARS) {
-        notify_subs[notify_sub_count].val_handle = chr->val_handle;
-        notify_subs[notify_sub_count].cccd_handle = 0;  // unknown yet
+    struct conn_notify_subs *conn_notify = get_conn_notify(conn_handle);
+    if (!conn_notify) {
+        ESP_LOGE(BLE_TAG, "No notify_sub slot for conn_handle %d", conn_handle);
+        return 0;
+    }
+    if ((chr->properties & BLE_GATT_CHR_PROP_NOTIFY) && 
+        conn_notify->notify_sub_count < MAX_NOTIFY_CHARS_PER_CONN) {
+        int idx = conn_notify->notify_sub_count;
+        conn_notify->notify_subs[idx].val_handle = chr->val_handle;
+        conn_notify->notify_subs[idx].cccd_handle = 0;
         ESP_LOGI(BLE_TAG, "Notify characteristic found, handle=%d", chr->val_handle);
-        notify_sub_count++;
+        conn_notify->notify_sub_count++;
     }
     return 0;
 }
@@ -251,14 +297,12 @@ static void ble_cts_cent_scan(void) // Initiates the GAP general discovery proce
     uint8_t own_addr_type;
     struct ble_gap_disc_params disc_params;
     int rc;
-
     // Figure out address to use while advertising (no privacy for now)
     rc = ble_hs_id_infer_auto(0, &own_addr_type);
     if (rc != 0) {
         ESP_LOGE(BLE_TAG, "Error determining address type; rc=%d", rc);
         return;
     }
-
     // Tell the controller to filter duplicates; we don't want to process repeated advertisements from the same device.
     disc_params.filter_duplicates = 1;
     // Perform a passive scan. I.e., don't send follow-up scan requests to each advertiser.
@@ -284,7 +328,7 @@ static int ble_cts_cent_should_connect(const struct ble_gap_disc_desc *disc)
             disc->addr.val[5], disc->addr.val[4], disc->addr.val[3], disc->addr.val[2], disc->addr.val[1], disc->addr.val[0]);
 
     // Compare the device address with target MAC
-    if (memcmp(disc->addr.val, target_mac, 6) == 0) {
+    if (memcmp(disc->addr.val+3, target_mac+3, 3) == 0) { //check first 4 bytes
         ESP_LOGI(BLE_TAG, "Should connect!");
         return true;  // connect if MAC matches
     }
@@ -292,42 +336,49 @@ static int ble_cts_cent_should_connect(const struct ble_gap_disc_desc *disc)
     return false;     // otherwise don't connect
 }
 
-
-// Connects to the sender of the specified advertisement if it looks interesting. 
-// A device is "interesting" if it advertises connectability and support for the Current Time service.
-static void ble_cts_cent_connect_if_interesting(void *disc)
+bool already_connected(ble_addr_t *addr) 
 {
+    for (int i = 0; i < num_connected_peers; i++) {
+        if (memcmp(connected_peers[i].val, addr->val, 6) == 0 &&
+            connected_peers[i].type == addr->type) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void ble_cts_cent_connect_if_interesting(void *disc) {
     uint8_t own_addr_type;
     int rc;
-    ble_addr_t *addr;
-
-    // Don't do anything if we don't care about this advertiser.
+    ble_addr_t *addr = &((struct ble_gap_disc_desc *)disc)->addr;
+    // Skip if not interesting device
     if (!ble_cts_cent_should_connect((struct ble_gap_disc_desc *)disc)) {
         return;
     }
-
+    // **Skip if already connected**
+    if (already_connected(addr)) {
+        ESP_LOGI(BLE_TAG, "Already connected to device %s; skipping", addr_str(addr->val));
+        return;
+    }
     #if !(MYNEWT_VAL(BLE_HOST_ALLOW_CONNECT_WITH_SCAN))
-        // Scanning must be stopped before a connection can be initiated.
+        // Scanning must be stopped before connecting
         rc = ble_gap_disc_cancel();
         if (rc != 0) {
             ESP_LOGD(BLE_TAG, "Failed to cancel scan; rc=%d", rc);
             return;
         }
     #endif
-
-    // Figure out address to use for connect (no privacy for now)
+    // Get own address type
     rc = ble_hs_id_infer_auto(0, &own_addr_type);
     if (rc != 0) {
         ESP_LOGE(BLE_TAG, "error determining address type; rc=%d", rc);
         return;
     }
-
-    // Try to connect to the advertiser. Allow 30 seconds (30000 ms) timeout.
-    addr = &((struct ble_gap_disc_desc *)disc)->addr;
-
+    // Connect
+    vTaskDelay(pdMS_TO_TICKS(50)); // small delay after scan cancel
     rc = ble_gap_connect(own_addr_type, addr, 30000, NULL, ble_cts_cent_gap_event, NULL);
     if (rc != 0) {
-        ESP_LOGE(BLE_TAG, "Error: Failed to connect to device; addr_type=%d addr=%s; rc=%d",
+        ESP_LOGE(BLE_TAG, "Failed to connect to device; addr_type=%d addr=%s; rc=%d",
                  addr->type, addr_str(addr->val), rc);
         return;
     }
@@ -381,40 +432,67 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
         // Try to connect to the advertiser if it looks interesting.
         ble_cts_cent_connect_if_interesting(&event->disc);
         break;
-    case BLE_GAP_EVENT_LINK_ESTAB:
+case BLE_GAP_EVENT_LINK_ESTAB: 
+    {
         ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_LINK_ESTAB");
-        // A new connection was established or a connection attempt failed.
+
         if (event->link_estab.status == 0) {
-            // Connection successfully established.
-            ESP_LOGI(BLE_TAG, "Connection established!!!!!!!!!!!!!!!!!!!!!!! ");
+            // Connection successful
+            ESP_LOGI(BLE_TAG, "Connection established!");
+
             turnLedOn(true);
 
+            struct ble_gap_conn_desc desc;
             rc = ble_gap_conn_find(event->link_estab.conn_handle, &desc);
             assert(rc == 0);
             print_conn_desc(&desc);
             ESP_LOGI(BLE_TAG, "\n");
 
-            // Remember peer.
+            // Add peer to our local connected_peers[] list if not already there
+            bool found = false;
+            for (int i = 0; i < num_connected_peers; i++) {
+                if (memcmp(connected_peers[i].val, desc.peer_id_addr.val, 6) == 0 &&
+                    connected_peers[i].type == desc.peer_id_addr.type) {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found && num_connected_peers < MAX_PEERS) {
+                connected_peers[num_connected_peers++] = desc.peer_id_addr;
+                ESP_LOGI(BLE_TAG, "Peer added to connected_peers list");
+            } else if (found) {
+                ESP_LOGW(BLE_TAG, "Peer already tracked");
+            } else {
+                ESP_LOGW(BLE_TAG, "Max peers reached, can't track more");
+            }
+
+            // Add peer to NimBLE peer table
             rc = peer_add(event->link_estab.conn_handle);
             if (rc != 0) {
                 ESP_LOGE(BLE_TAG, "Failed to add peer; rc=%d", rc);
                 return 0;
             }
 
-            // Perform service discovery
+            // Discover services
             rc = ble_gattc_disc_all_svcs(event->link_estab.conn_handle, on_service_discovered, NULL);
             if (rc != 0) {
                 ESP_LOGE(BLE_TAG, "Failed to discover services; rc=%d", rc);
                 return 0;
             }
+
+            // Keep scanning to allow more connections
+            vTaskDelay(pdMS_TO_TICKS(100));  // Optional: debounce scan noise
+            ble_cts_cent_scan();  // Allow discovering more devices
+
         } else {
+            // Connection failed
             turnLedOn(false);
-            // Connection attempt failed; resume scanning.
-            ESP_LOGE(BLE_TAG, "Error: Connection failed; status=%d",
-                     event->link_estab.status);
+            ESP_LOGE(BLE_TAG, "Connection failed; status=%d", event->link_estab.status);
             ble_cts_cent_scan();
         }
         break;
+    }
     case BLE_GAP_EVENT_CONNECT:
         if (event->connect.status == 0) {
             ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_CONNECT. Connected to peer");
@@ -433,13 +511,35 @@ static int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg)
         break;        
     case BLE_GAP_EVENT_DISCONNECT:
         ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_DISCONNECT");
-        turnLedOn(true);
+        turnLedOn(false);  // Usually off LED on disconnect
         ESP_LOGI(BLE_TAG, "disconnect; reason=%d ", event->disconnect.reason);
         print_conn_desc(&event->disconnect.conn);
         ESP_LOGI(BLE_TAG, "\n");
-        peer_delete(event->disconnect.conn.conn_handle); // Forget about peer.
-        ble_cts_cent_scan(); // Resume scanning.q
-        break;
+        // Remove peer from connected_peers array
+        for (int i = 0; i < num_connected_peers; i++) {
+            if (memcmp(connected_peers[i].val, event->disconnect.conn.peer_id_addr.val, 6) == 0 &&
+                connected_peers[i].type == event->disconnect.conn.peer_id_addr.type) {
+                for (int j = i; j < num_connected_peers - 1; j++) {
+                    connected_peers[j] = connected_peers[j + 1];
+                }
+                num_connected_peers--;
+                ESP_LOGI(BLE_TAG, "Removed disconnected peer from tracking");
+                break;
+            }
+        }
+        // Clear notify subscriptions for this connection
+        for (int i = 0; i < MAX_CONNECTIONS; i++) {
+            if (conn_notify_array[i].conn_handle == event->disconnect.conn.conn_handle) {
+                memset(&conn_notify_array[i], 0, sizeof(struct conn_notify_subs));
+                ESP_LOGI(BLE_TAG, "Cleared notify subscriptions for conn_handle %d", event->disconnect.conn.conn_handle);
+                break;
+            }
+        }
+        // Forget about peer in NimBLE
+        peer_delete(event->disconnect.conn.conn_handle);
+        // Resume scanning for new devices
+        ble_cts_cent_scan();
+    break;
     case BLE_GAP_EVENT_DISC_COMPLETE:
         ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_DISC_COMPLETE discovery complete; reason=%d", event->disc_complete.reason);
         break;
@@ -531,35 +631,6 @@ static int blecent_on_disc_chr(const struct ble_gatt_error *error,
     // Store handles
     uint16_t char_val_handle = chr->val_handle;
     uint16_t cccd_handle = chr->val_handle + 1; // assuming CCCD is immediately after
-
-    /*
-    // Match your target UUID here
-    if (chr->uuid.u.type == BLE_UUID_TYPE_16 &&
-        chr->uuid.u16.value == YOUR_CHAR_UUID) {
-
-        ESP_LOGI(BLE_TAG, "Found desired characteristic");
-
-        // Store value handle
-        your_val_handle = chr->val_handle;
-
-        // OPTIONAL: If you've already discovered descriptors, get CCCD handle here
-        your_cccd_handle = find_cccd_handle_somehow();  // OR just use val_handle + 1 as a guess
-
-
-        static struct ble_gatt_subscribe_params sub_params;
-        memset(&sub_params, 0, sizeof(sub_params));
-        sub_params.notify = on_notify_cb;
-        sub_params.value_handle = your_val_handle;
-        sub_params.cccd_handle = your_cccd_handle;
-
-        int rc = ble_gattc_subscribe(conn_handle, &sub_params);
-        if (rc != 0) {
-            ESP_LOGE(BLE_TAG, "Subscription failed: %d", rc);
-        } else {
-            ESP_LOGI(BLE_TAG, "Subscribed to notifications");
-        }
-    }    
-    */
 
     return 0;
 }
