@@ -17,7 +17,6 @@
 #include "freertos/task.h"
 //fede
 #include "host/ble_uuid.h"
-#include "uuids.h"
 //led
 #include "driver/gpio.h"
 //gattc
