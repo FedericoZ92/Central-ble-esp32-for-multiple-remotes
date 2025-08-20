@@ -8,14 +8,16 @@ static QueueHandle_t uart_queue;
 
 SerialModule SerialLine; // Global instance
 
-void onSerialData(const uint8_t* data, size_t len) {
+void onSerialData(const uint8_t* data, size_t len) 
+{
     SerialLine.write(data, len);
 }
 
 SerialModule::SerialModule()
     : writeCallback(nullptr) {}
 
-void SerialModule::begin() {
+void SerialModule::begin() 
+{
     // Configure UART
     uart_config_t uart_config = {};
     uart_config.baud_rate = SERIAL_BAUD_RATE;
@@ -33,23 +35,26 @@ void SerialModule::begin() {
     xTaskCreate(uartEventTask, "uart_event_task", SERIAL_TASK_STACK, this, SERIAL_TASK_PRIO, nullptr);
 }
 
-void SerialModule::setWriteCallback(WriteCallback cb) {
+void SerialModule::setWriteCallback(WriteCallback cb) 
+{
     writeCallback = cb;
 }
 
-void SerialModule::write(const uint8_t* data, size_t len) {
+void SerialModule::write(const uint8_t* data, size_t len) 
+{
     uart_write_bytes(SERIAL_UART_PORT, (const char*)data, len);
 }
 
-void SerialModule::write(const char* str) {
+void SerialModule::write(const char* str) 
+{
     write((const uint8_t*)str, strlen(str));
 }
 
-void SerialModule::uartEventTask(void* pvParameters) {
+void SerialModule::uartEventTask(void* pvParameters) 
+{
     SerialModule* self = static_cast<SerialModule*>(pvParameters);
     uart_event_t event;
     uint8_t data[SERIAL_BUF_SIZE];
-
     while (true) {
         if (xQueueReceive(uart_queue, &event, portMAX_DELAY)) {
             if (event.type == UART_DATA) {

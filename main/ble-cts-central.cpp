@@ -22,6 +22,8 @@
 //gattc
 #include "host/ble_gap.h"
 #include "host/ble_gatt.h"
+//serial
+ #include "serial-module.h"
 
 
 #define LED_GPIO GPIO_NUM_48  // Use your chosen pin
@@ -70,12 +72,12 @@ void printtime(struct ble_svc_cts_curr_time ctime) {
 }
 
 int ble_cts_cent_on_read(uint16_t conn_handle,
-                                const struct ble_gatt_error *error,
-                                struct ble_gatt_attr *attr,
-                                void *arg) {
+                        const struct ble_gatt_error *error,
+                        struct ble_gatt_attr *attr,
+                        void *arg) 
+{
     struct ble_svc_cts_curr_time ctime;
-    ESP_LOGI(BLE_TAG, "Read Current time complete; status=%d conn_handle=%d",
-             error->status, conn_handle);
+    ESP_LOGI(BLE_TAG, "Read Current time complete; status=%d conn_handle=%d", error->status, conn_handle);
     if (error->status == 0) {
         ESP_LOGI(BLE_TAG, " attr_handle=%d value=", attr->handle);
         print_mbuf(attr->om);
@@ -87,7 +89,8 @@ int ble_cts_cent_on_read(uint16_t conn_handle,
     return ble_gap_terminate(conn_handle, BLE_ERR_REM_USER_CONN_TERM);
 }
 
-int ble_cts_cent_read_time(const struct peer *peer) {
+int ble_cts_cent_read_time(const struct peer *peer) 
+{
     int rc;
     const struct peer_chr *chr = peer_chr_find_uuid(peer,
         (const ble_uuid_t *)&uuid_svc,
@@ -105,9 +108,10 @@ int ble_cts_cent_read_time(const struct peer *peer) {
 }
 
 int on_cccd_written(uint16_t conn_handle,
-                           const struct ble_gatt_error *error,
-                           struct ble_gatt_attr *attr,
-                           void *arg) {
+                    const struct ble_gatt_error *error,
+                    struct ble_gatt_attr *attr,
+                    void *arg) 
+{
     if (error->status == 0) {
         ESP_LOGI(BLE_TAG, "Notifications enabled via CCCD");
     } else {
@@ -135,7 +139,8 @@ struct conn_notify_subs {
 
 struct conn_notify_subs conn_notify_array[MAX_CONNECTIONS];
 
-struct conn_notify_subs *get_conn_notify(uint16_t conn_handle) {
+struct conn_notify_subs *get_conn_notify(uint16_t conn_handle) 
+{
     for (int i = 0; i < MAX_CONNECTIONS; i++) {
         if (conn_notify_array[i].conn_handle == conn_handle) {
             return &conn_notify_array[i];
@@ -158,10 +163,11 @@ struct notify_sub notify_subs[MAX_NOTIFY_CHARS];
 int notify_sub_count = 0;
 
 int on_descriptor_discovered(uint16_t conn_handle,
-                                    const struct ble_gatt_error *error,
-                                    uint16_t chr_val_handle,
-                                    const struct ble_gatt_dsc *dsc,
-                                    void *arg) {
+                            const struct ble_gatt_error *error,
+                            uint16_t chr_val_handle,
+                            const struct ble_gatt_dsc *dsc,
+                            void *arg) 
+{
     int idx = (int)(intptr_t)arg;
     struct conn_notify_subs *conn_notify = get_conn_notify(conn_handle);
     if (!conn_notify) {
@@ -194,9 +200,10 @@ int on_descriptor_discovered(uint16_t conn_handle,
 }
 
 int on_characteristic_discovered(uint16_t conn_handle,
-                                        const struct ble_gatt_error *error,
-                                        const struct ble_gatt_chr *chr,
-                                        void *arg) {
+                                const struct ble_gatt_error *error,
+                                const struct ble_gatt_chr *chr,
+                                void *arg) 
+{
     if (error->status != 0 || chr == NULL) {
         ESP_LOGI(BLE_TAG, "Characteristic discovery complete");
         struct conn_notify_subs *conn_notify = get_conn_notify(conn_handle);
@@ -233,10 +240,11 @@ int on_characteristic_discovered(uint16_t conn_handle,
     return 0;
 }
 
-int on_service_discovered(uint16_t conn_handle,
-                                 const struct ble_gatt_error *error,
-                                 const struct ble_gatt_svc *service,
-                                 void *arg) {
+int on_service_discovered(  uint16_t conn_handle,
+                            const struct ble_gatt_error *error,
+                            const struct ble_gatt_svc *service,
+                            void *arg) 
+{
     if (error->status != 0 || service == NULL) {
         ESP_LOGI(BLE_TAG, "Service discovery complete");
         ble_gattc_disc_all_chrs(conn_handle, 1, 0xFFFF, on_characteristic_discovered, NULL);
@@ -248,7 +256,8 @@ int on_service_discovered(uint16_t conn_handle,
     return 0;
 }
 
-void ble_cts_cent_scan(void) {
+void ble_cts_cent_scan(void) 
+{
     uint8_t own_addr_type;
     struct ble_gap_disc_params disc_params;
     int rc;
@@ -272,7 +281,8 @@ void ble_cts_cent_scan(void) {
 
 static const uint8_t target_mac[6] = {0xFA, 0xA1, 0x01, 0x98, 0x07, 0x2A};
 
-static int ble_cts_cent_should_connect(const struct ble_gap_disc_desc *disc) {
+static int ble_cts_cent_should_connect(const struct ble_gap_disc_desc *disc) 
+{
     ESP_LOGI(BLE_TAG, "Found device MAC: %02X:%02X:%02X:%02X:%02X:%02X",
             disc->addr.val[5], disc->addr.val[4], disc->addr.val[3], disc->addr.val[2], disc->addr.val[1], disc->addr.val[0]);
     if (memcmp(disc->addr.val+3, target_mac+3, 3) == 0) {
@@ -283,7 +293,8 @@ static int ble_cts_cent_should_connect(const struct ble_gap_disc_desc *disc) {
     return false;
 }
 
-bool already_connected(ble_addr_t *addr) {
+bool already_connected(ble_addr_t *addr) 
+{
     for (int i = 0; i < num_connected_peers; i++) {
         if (memcmp(connected_peers[i].val, addr->val, 6) == 0 &&
             connected_peers[i].type == addr->type) {
@@ -293,7 +304,8 @@ bool already_connected(ble_addr_t *addr) {
     return false;
 }
 
-static void ble_cts_cent_connect_if_interesting(void *disc) {
+static void ble_cts_cent_connect_if_interesting(void *disc) 
+{
     uint8_t own_addr_type;
     int rc;
     ble_addr_t *addr = &((struct ble_gap_disc_desc *)disc)->addr;
@@ -304,13 +316,13 @@ static void ble_cts_cent_connect_if_interesting(void *disc) {
         ESP_LOGI(BLE_TAG, "Already connected to device %s; skipping", addr_str(addr->val));
         return;
     }
-#if !(MYNEWT_VAL(BLE_HOST_ALLOW_CONNECT_WITH_SCAN))
-    rc = ble_gap_disc_cancel();
-    if (rc != 0) {
-        ESP_LOGD(BLE_TAG, "Failed to cancel scan; rc=%d", rc);
-        return;
-    }
-#endif
+    #if !(MYNEWT_VAL(BLE_HOST_ALLOW_CONNECT_WITH_SCAN))
+        rc = ble_gap_disc_cancel();
+        if (rc != 0) {
+            ESP_LOGD(BLE_TAG, "Failed to cancel scan; rc=%d", rc);
+            return;
+        }
+    #endif
     rc = ble_hs_id_infer_auto(0, &own_addr_type);
     if (rc != 0) {
         ESP_LOGE(BLE_TAG, "error determining address type; rc=%d", rc);
@@ -333,7 +345,9 @@ int blecent_on_disc_chr(uint16_t conn_handle,
     return 0;
 }
 
-int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg) {
+int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg) 
+{
+    char buffer[64];
     struct ble_gap_conn_desc desc;
     struct ble_hs_adv_fields fields;
     int rc;
@@ -433,14 +447,31 @@ int ble_cts_cent_gap_event(struct ble_gap_event *event, void *arg) {
     case BLE_GAP_EVENT_ENC_CHANGE:
         ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_ENC_CHANGE");
         // Encryption has been enabled or disabled for this connection.
-        ESP_LOGI(BLE_TAG, "encryption change event; status=%d",
-                 event->enc_change.status);
+        ESP_LOGI(BLE_TAG, "encryption change event; status=%d", event->enc_change.status);
         rc = ble_gap_conn_find(event->enc_change.conn_handle, &desc);
         assert(rc == 0);
         print_conn_desc(&desc);
         break;
     case BLE_GAP_EVENT_NOTIFY_RX: // Peer sent us a notification or indication.
         ESP_LOGI(BLE_TAG, "BLE_GAP_EVENT_NOTIFY_RX");
+        // Use the connection handle to fetch connection info
+        rc = ble_gap_conn_find(event->notify_rx.conn_handle, &desc);
+        if (rc == 0) {
+            // Format the MAC address into the buffer
+            snprintf(buffer, sizeof(buffer),
+                     "Received notify from remote mac: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                     desc.peer_id_addr.val[5],
+                     desc.peer_id_addr.val[4],
+                     desc.peer_id_addr.val[3],
+                     desc.peer_id_addr.val[2],
+                     desc.peer_id_addr.val[1],
+                     desc.peer_id_addr.val[0]);
+            // Use your custom SerialModule::write()
+            SerialLine.write(buffer);
+        } else {
+            printf("Failed to get connection descriptor\n");
+        }
+        
         ESP_LOGI(BLE_TAG, "received %s; conn_handle=%d attr_handle=%d attr_len=%d",
                             event->notify_rx.indication ? "indication" : "notification",
                             event->notify_rx.conn_handle,
