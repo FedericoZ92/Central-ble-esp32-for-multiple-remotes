@@ -1,156 +1,101 @@
-| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C6 | ESP32-H2 | ESP32-S3 |
-| ----------------- | ----- | -------- | -------- | -------- | -------- | -------- |
+# BLE Button Project
 
-# BLE CTS Cent Example
+This project implements a BLE (Bluetooth Low Energy) central device based on the ESP32-S3 microcontroller using the ESP-IDF framework. The device acts as a GATT client that performs passive scanning for BLE peripherals advertising support for the Current Time Service (CTS, UUID: 0x1805).
 
-(See the README.md file in the upper level 'examples' directory for more information about examples.)
+![Project Screenshot](docs/Screenshot_20251226_151029_Gallery.jpg)
 
-This example creates GATT client and performs passive scan, it then connects to peripheral device if the device advertises connectability and the device advertises support for the Current Time Service (0x1805) as primary service UUID.
+## Features
 
-It performs following GATT operations against the specified peer:
+- **BLE Central Role**: Scans for and connects to BLE peripherals that support the Current Time Service.
+- **Time Reading**: Reads the current time characteristic from connected devices.
+- **LED Control**: Controls an onboard LED (GPIO 48) based on BLE events or time data.
+- **Serial Communication**: Provides serial interface for monitoring and data exchange.
+- **ESP-IDF Integration**: Built using Espressif's IoT Development Framework with NimBLE stack.
 
-* Reads the Current Time characteristic.
+## Hardware Requirements
 
-If the peer does not support a required service, characteristic, or descriptor, then the peer lied when it claimed support for the Current Time Service! When this happens, or if a GATT procedure fails, this function immediately terminates the connection.
+- ESP32-S3 development board (e.g., ESP32-S3-DevKitC)
+- USB cable for power supply and programming
+- BLE peripheral device that advertises Current Time Service (for testing)
 
-It uses ESP32's Bluetooth controller and NimBLE stack based BLE host.
+## Software Requirements
 
-This example aims at understanding BLE service discovery, connection, encryption and characteristic operations.
+- ESP-IDF v5.0 or later
+- CMake
+- Python 3.7 or later
 
-To test this demo, use any BLE GATT server app that advertises support for the Current Time Service (0x1805) and includes it in the GATT database.
+## Build and Flash
 
-## How to Use Example
+1. Set the target chip:
+   ```bash
+   idf.py set-target esp32s3
+   ```
 
-Before project configuration and build, be sure to set the correct chip target using:
+2. Configure the project (optional, for custom settings):
+   ```bash
+   idf.py menuconfig
+   ```
 
-```bash
-idf.py set-target <chip_name>
-```
+3. Build the project:
+   ```bash
+   idf.py build
+   ```
 
-### Hardware Required
+4. Flash and monitor:
+   ```bash
+   idf.py -p <PORT> flash monitor
+   ```
 
-* A development board with ESP32/ESP32-C2/ESP32-C3/ESP32-S3/ESP32-H2/ESP32-C6 SoC (e.g., ESP32-DevKitC, ESP-WROVER-KIT, etc.)
-* A USB cable for Power supply and programming
+Replace `<PORT>` with your ESP32-S3's serial port (e.g., COM3 on Windows or /dev/ttyUSB0 on Linux).
 
-See [Development Boards](https://www.espressif.com/en/products/devkits) for more information about it.
+## Usage
 
-### Configure the Project
+1. Power on the ESP32-S3 board.
+2. The device will start BLE scanning for peripherals with Current Time Service.
+3. When a compatible peripheral is found, it will attempt to connect.
+4. Upon successful connection, it reads the current time and displays it via serial output.
+5. The LED will indicate connection status and other events.
 
-Open the project configuration menu:
+## Serial Output
 
-```bash
-idf.py menuconfig
-```
-
-In the `Example Configuration` menu:
-
-* Change the `Peer Address` option if needed.
-
-### Build and Flash
-
-Run `idf.py -p PORT flash monitor` to build, flash and monitor the project.
-
-(To exit the serial monitor, type ``Ctrl-]``.)
-
-See the [Getting Started Guide](https://idf.espressif.com/) for full steps to configure and use ESP-IDF to build projects.
-
-## Example Output
-
-This is the console output on successful connection:
+The device outputs debug information and time data through the serial interface. Connect using a terminal program at 115200 baud rate.
 
 ```
 I (358) BLE_INIT: BT controller compile version [59725b5]
 I (358) BLE_INIT: Bluetooth MAC: 60:55:f9:68:c4:fa
-I (368) phy_init: phy_version 1110,9c20f0a,Jul 27 2023,10:42:54
-I (408) NimBLE_CTS_CENT: BLE Host Task Started
-I (408) NimBLE: GAP procedure initiated: stop advertising.
-
-I (408) NimBLE: GAP procedure initiated: discovery;
-I (408) NimBLE: own_addr_type=0 filter_policy=0 passive=1 limited=0 filter_duplicates=1
-I (418) NimBLE: duration=forever
-I (428) NimBLE:
-
-I (428) main_task: Returned from app_main()
-I (628) NimBLE: GAP procedure initiated: connect;
-I (628) NimBLE: peer_addr_type=1 peer_addr=
-I (628) NimBLE: 6b:93:b5:30:71:cf
-I (638) NimBLE:  scan_itvl=16 scan_window=16 itvl_min=24 itvl_max=40 latency=0 supervision_timeout=256 min_ce_len=0 max_ce_len=0 own_addr_type=0
-I (648) NimBLE:
-
-I (908) NimBLE: Connection established
-I (908) NimBLE:
-
-I (918) NimBLE: Connection secured
-
-I (1208) NimBLE: received indication; conn_handle=1 attr_handle=3 attr_len=4
-
-I (1208) NimBLE: GAP procedure initiated:
-I (1208) NimBLE: connection parameter update; conn_handle=1 itvl_min=6 itvl_max=6 latency=0 supervision_timeout=500 min_ce_len=0 max_ce_len=0
-I (1228) NimBLE:
-
-I (3568) NimBLE: encryption change event; status=0
-I (3568) NimBLE: GATT procedure initiated: discover all services
-
-I (3608) NimBLE: GATT procedure initiated: discover all characteristics;
-I (3608) NimBLE: start_handle=1 end_handle=9
-
-I (3658) NimBLE: GATT procedure initiated: discover all characteristics;
-I (3658) NimBLE: start_handle=20 end_handle=26
-
-I (3688) NimBLE: GATT procedure initiated: discover all characteristics;
-I (3688) NimBLE: start_handle=134 end_handle=141
-
-I (3718) NimBLE: GATT procedure initiated: discover all characteristics;
-I (3718) NimBLE: start_handle=142 end_handle=151
-
-I (3758) NimBLE: GATT procedure initiated: discover all characteristics;
-I (3758) NimBLE: start_handle=152 end_handle=158
-
-I (3788) NimBLE: GATT procedure initiated: discover all characteristics;
-I (3788) NimBLE: start_handle=159 end_handle=65535
-
-I (3818) NimBLE: GATT procedure initiated: discover all descriptors;
-I (3818) NimBLE: chr_val_handle=136 end_handle=137
-
-I (3838) NimBLE: GATT procedure initiated: discover all descriptors;
-I (3838) NimBLE: chr_val_handle=144 end_handle=148
-
-I (3898) NimBLE: GATT procedure initiated: discover all descriptors;
-I (3898) NimBLE: chr_val_handle=150 end_handle=151
-
-I (3908) NimBLE: GATT procedure initiated: discover all descriptors;
-I (3908) NimBLE: chr_val_handle=161 end_handle=162
-
-I (3928) NimBLE: GATT procedure initiated: discover all descriptors;
-I (3928) NimBLE: chr_val_handle=164 end_handle=65535
-
-I (3938) NimBLE: Service discovery complete; status=0 conn_handle=1
-
-I (3938) NimBLE: GATT procedure initiated: read;
-I (3938) NimBLE: att_handle=161
-
-I (3958) NimBLE: Read Current time complete; status=0 conn_handle=1
-I (3958) NimBLE:  attr_handle=161 value=
-I (3958) NimBLE: 0xe7
-I (3958) NimBLE: :0x07
-I (3958) NimBLE: :0x08
-I (3968) NimBLE: :0x1e
-I (3968) NimBLE: :0x14
-I (3968) NimBLE: :0x25
-I (3978) NimBLE: :0x02
-I (3978) NimBLE: :0x03
-I (3978) NimBLE: :0xf6
-I (3978) NimBLE: :0x00
-I (3988) NimBLE:
-
-I (3988) NimBLE_CTS_CENT: Date : 30/8/2023
+...
+I (3998) NimBLE_CTS_CENT: Date : 30/8/2023
 I (3998) NimBLE_CTS_CENT: hours : 20 minutes : 37
 I (3998) NimBLE_CTS_CENT: seconds : 2
-
-I (4008) NimBLE_CTS_CENT: fractions : 0
-
 ```
+
+## Configuration
+
+The project uses default BLE settings. You can modify `sdkconfig` or use `idf.py menuconfig` to adjust:
+- BLE device name
+- Scan parameters
+- Connection settings
+
+## Project Structure
+
+- `main/`: Source code directory
+  - `main.cpp`: Main application entry point
+  - `ble-cts-central.cpp`: BLE central implementation
+  - `serial-module.cpp`: Serial communication module
+  - `util.h`: Utility functions and definitions
+- `CMakeLists.txt`: Project build configuration
+- `sdkconfig`: Project configuration file
+
+## Dependencies
+
+- ESP-IDF components: NimBLE, FreeRTOS, GPIO drivers, UART
+- Custom modules: BLE CTS central, serial communication
 
 ## Troubleshooting
 
-For any technical queries, please open an [issue](https://github.com/espressif/esp-idf/issues) on GitHub. We will get back to you soon.
+- Ensure the ESP32-S3 target is set correctly: `idf.py set-target esp32s3`
+- Check serial port permissions on Linux/macOS
+- Verify BLE peripheral supports Current Time Service
+- For build issues, clean and rebuild: `idf.py clean && idf.py build`
+
+For technical queries, please refer to the [ESP-IDF documentation](https://docs.espressif.com/projects/esp-idf/) or open an issue on the project repository.
